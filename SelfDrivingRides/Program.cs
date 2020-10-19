@@ -47,12 +47,17 @@ namespace SelfDrivingRides
                 while (true)
                 {
                     
+                    /* Representation
+                     * List of Cars
+                     * Each List element is a car and has a list of rides
+                     * */
                     cars = cars.OrderBy(x => x.getRides().Count).ToList();
                     Random random = new Random();
                     int ridesSize = rides.Count();
 
                     Ride r = rides.ElementAt(random.Next() % ridesSize);
 
+                    
                     Car c = cars.ElementAt(0);
                     int distanceToRide = c.distanceToRide(r.getStartX(), r.getStartY());
         
@@ -97,7 +102,14 @@ namespace SelfDrivingRides
                     bestSolution = solution;
                 }
             }
-            
+
+            //Print Solution
+            printSolution(bestSolution, solutionFitness);
+
+        }
+
+        static void printSolution(List<Car> bestSolution,double solutionFitness)
+        {
             StreamWriter file = new StreamWriter(@"C:\Users\USER\Desktop\HashCode2018\Validator\c_no_hurry.out");
             string line;
             foreach (var car in bestSolution)
@@ -114,7 +126,6 @@ namespace SelfDrivingRides
 
             Console.WriteLine("Fitness:" + solutionFitness);
             file.Close();
-
         }
 
         static double calculateFitness(List<Car> cars)
