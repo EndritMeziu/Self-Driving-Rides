@@ -132,7 +132,7 @@ namespace SelfDrivingRides
             //printSolution(bestSolution, bestFitness);
             Console.WriteLine("Solution fitness: " + calculateFitnessScore(bestSolution.ToList()));
             KeyValuePair<int,List<Car>> newElement =  RankSelect(population);
-            
+            KeyValuePair<int, List<Car>> selectedElement = TournamentSelection(population, 10);
         }
 
         static KeyValuePair<int,List<Car>> RankSelect(Dictionary<int,List<Car>> rep)
@@ -172,6 +172,38 @@ namespace SelfDrivingRides
             return new KeyValuePair<int, List<Car>>();
         }
 
+        static KeyValuePair<int,List<Car>> TournamentSelection(Dictionary<int, List<Car>> rep , int k)
+        {
+            int popSize = rep.Count;
+            double F = (popSize * (popSize + 1)) / 2;
+
+            Dictionary<int, double> repFitnessValues = new Dictionary<int, double>();
+            Dictionary<int, List<Car>> repValues = rep.ToDictionary(x => x.Key, x => x.Value);
+            repValues = repValues.OrderBy(x => Guid.NewGuid()).ToDictionary(x => x.Key, x=>x.Value);
+
+
+            Dictionary<int, List<Car>> kElements = new Dictionary<int, List<Car>>();
+            int i = 0;
+            foreach(var elem in repValues)
+            {
+                kElements.Add(elem.Key,elem.Value);
+                i++;
+                if (i == k)
+                    break;
+            }
+
+            double bestFitness = 0;
+            KeyValuePair<int,List<Car>> bestSolution = new KeyValuePair<int,List<Car>>();
+            foreach(var elem in kElements)
+            {
+                if(calculateFitnessScore(elem.Value) > bestFitness)
+                {
+                    bestFitness = calculateFitnessScore(elem.Value);
+                    bestSolution = elem;
+                }
+            }
+            return bestSolution;
+        }
         static void printSolution(List<Car> bestSolution,double solutionFitness)
         {
             StreamWriter file = new StreamWriter(@"C:\Users\USER\Desktop\HashCode2018\Validator\c_no_hurry.out");
