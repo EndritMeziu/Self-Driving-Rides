@@ -143,9 +143,10 @@ namespace SelfDrivingRides
 
         static void performHillClimbing(int numIterations,List<Car> bestSolution)
         {
+            int count = 0;
             while (true)
             {
-                numIterations++;
+                count++;
                 Random r = new Random();
                 int car = r.Next() % NumCars;
                 Thread.Sleep(10);
@@ -168,13 +169,13 @@ namespace SelfDrivingRides
                     }
                 }
 
-                if (numIterations % 100 == 0)
+                if (count % 100 == 0)
                 {
                     double fitness = calculateFitnessScore(bestSolution.ToList());
                     Console.WriteLine(fitness);
                 }
 
-                if (numIterations > 2000)
+                if (count > numIterations)
                 {
                     double fitness = calculateFitnessScore(bestSolution.ToList());
                     printSolution(bestSolution, fitness);
