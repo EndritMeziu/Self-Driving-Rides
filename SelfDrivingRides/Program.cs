@@ -17,7 +17,9 @@ namespace SelfDrivingRides
         public static int BonusValue;
         public static int Steps;
         public static List<Ride> readRides = new List<Ride>();
+        public static List<Car> readCars = new List<Car>();
         public static List<Ride> remainingRides = new List<Ride>();
+
         static void Main(string[] args)
         {
             if (args.Length < 1)
@@ -25,7 +27,6 @@ namespace SelfDrivingRides
                 Console.WriteLine("You should specify the path of the file.");
                 return;
             }
-            List<Car> readCars = new List<Car>();
             string filePath = args[0];
             readRides = ReadFile(filePath);
             for (int i = 0; i < NumCars; i++)
@@ -35,7 +36,7 @@ namespace SelfDrivingRides
                 readCars.Add(car);
             }
 
-            
+
             int popSize = 0;
             Dictionary<int, List<Car>> population = new Dictionary<int, List<Car>>();
             //Population Generation
@@ -130,15 +131,136 @@ namespace SelfDrivingRides
             }
 
             double bestSolutionFitness = calculateFitnessScore(bestSolution.ToList());
-            Console.WriteLine("Solution fitness: " + calculateFitnessScore(bestSolution.ToList()));
+           // Console.WriteLine("Solution fitness: " + calculateFitnessScore(bestSolution.ToList()));
             
             remainingRides = GetRemainingRides(bestSolution);
 
 
             //Hill Climbing with swap and insert rides
-            performHillClimbing(1000, bestSolution);
+            //performHillClimbing(1000, bestSolution);
 
+            //Generating components for GRASP Method
+            Dictionary<int, double> components = new Dictionary<int, double>();
+            foreach (var ride in readRides)
+            {
+                components.Add(ride.getRideId(), GRASP_ride_fitness(ride));
+            }
 
+            Console.WriteLine("GRASP Method");
+            GRASP(components, 100, 10, 10);
+
+        }
+
+        /// <summary>
+        ///
+        /// </summary>
+        /// <param name="components">int,double --> rideId, fitness </param>
+        /// <param name="totalTime"></param>
+        /// <param name="p"></param>
+        /// <param name="m"></param>
+        static void GRASP(Dictionary<int,double> components, int totalTime, int p, int m)
+        {
+            int currentTime = 0;
+            
+            List<Car> bestSolution = ReinitializeCars(readCars);
+           
+
+            while(currentTime <= totalTime)
+            {
+                currentTime += 1;
+                List<Car> currentSolution = ReinitializeCars(readCars);
+                int count = 0;
+                while (true)
+                {
+                    List<int> CPrimComponents = FeasibleComponents(components, currentSolution);
+                    if (count > 2000)
+                    {
+                        if(calculateFitnessScore(currentSolution) > calculateFitnessScore(readCars))
+                        {
+                            bestSolution = currentSolution;
+                            double fitness = calculateFitnessScore(currentSolution);
+                            printSolution(currentSolution,fitness);
+                            Console.WriteLine();
+                        }
+                        break;
+                    }
+                    else
+                    {
+                        List<int> CSecondComponents = new List<int>();
+                        decimal percentAsNumber = p * (decimal.Parse(CPrimComponents.Count.ToString()) / 100);
+                        CSecondComponents = CPrimComponents.Take((int)Math.Ceiling(percentAsNumber)).ToList();
+                        Random r = new Random();
+                        int ridePos = r.Next() % CSecondComponents.Count;
+                        Car c = currentSolution.ElementAt(r.Next() % currentSolution.Count);
+                        Ride ride = readRides.Find(x => x.getRideId() == CSecondComponents.ElementAt(ridePos));
+                        int distanceToRide = c.distanceToRide(ride.getStartX(), ride.getStartY()) + c.getCurrentCarDistance();
+
+                        if (distanceToRide < ride.earliestStart)
+                            distanceToRide = ride.earliestStart;
+
+                        int distance = distanceToRide + ride.getRideDistance();
+
+                        if (distance < Steps && distance < ride.latestFinish)
+                        {
+                            c.addRide(ride.getRideId());
+                            c.setPositionX(ride.getEndX());
+                            c.setPositionY(ride.getEndY());
+                            c.setCurrentCarDistance(distance);
+                            c.addRideCost(distance);
+                        }
+                        
+                    }
+                    count++;
+                    if(count % 500 == 0)
+                    {
+                        double fitness = calculateFitnessScore(currentSolution);
+                        Console.WriteLine("Fitness: "+fitness);
+                    }
+
+                }
+
+            }
+        }
+
+        static List<int> FeasibleComponents(Dictionary<int, double> components,List<Car> cars)
+        {
+            List<int> CPrimComponents = new List<int>();
+            List<Car> clonedCars = ReinitializeCars(cars);
+            components = components.OrderBy(x => x.Value).ToDictionary(x=> x.Key,x => x.Value);
+            foreach(var comp in components)
+            {
+                bool hasRide = false;
+                foreach(var car in cars)
+                {
+                    if (car.rides.Contains(comp.Key))
+                    {
+                        hasRide = true;
+                        break;
+                    }
+                }
+                if (hasRide)
+                    continue;
+                foreach (var car in cars)
+                {
+                    car.addRide(comp.Key);
+                    if (validateSolution(car, car.getRides()))
+                    {
+                        CPrimComponents.Add(comp.Key);
+                        car.removeRide(comp.Key);
+                        break;
+                    }
+                    car.removeRide(comp.Key);
+                }
+                if (CPrimComponents.Count > 20)
+                    break;
+            }
+
+            return CPrimComponents;
+        }
+
+        static double GRASP_ride_fitness(Ride r)
+        {
+           return Math.Sqrt(Math.Pow(r.getStartX(),2) + Math.Pow(r.getStartY(),2));
         }
 
         static void performHillClimbing(int numIterations,List<Car> bestSolution)
@@ -297,12 +419,10 @@ namespace SelfDrivingRides
             string line;
             foreach (var car in bestSolution)
             {
-                Console.WriteLine(car.getRides().Count);
                 List<int> carRides = car.getRides().ToList();
                 string carRidesStr = string.Empty;
                 foreach (var ride in carRides)
                     carRidesStr += " " + ride;
-                Console.WriteLine();
                 line = car.getRides().Count + carRidesStr;
                 file.WriteLine(line);
             }
@@ -349,6 +469,10 @@ namespace SelfDrivingRides
             Car newCar = new Car();
             newCar.rides = c.getRides();
             int count = 0;
+
+            if (rides.GroupBy(x => x).ToList().Count != rides.Count)
+                return false;
+
             foreach(var ride in rides)
             {
                 Ride r = readRides.Find(x => x.getRideId() == ride);
