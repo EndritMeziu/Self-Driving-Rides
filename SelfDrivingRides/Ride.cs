@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace SelfDrivingRides
 {
-    class Ride
+    class Ride : ICloneable
     {
         private int rideId;
         private int startx;
@@ -15,6 +15,7 @@ namespace SelfDrivingRides
         private int endy;
         public int earliestStart;
         public int latestFinish;
+        public int canBeExplored;
         public Ride()
         {
 
@@ -89,6 +90,11 @@ namespace SelfDrivingRides
         public void setEndy(int endy)
         {
             this.endy = endy;
+        }
+
+        public object Clone()
+        {
+            throw new NotImplementedException();
         }
         #endregion
 

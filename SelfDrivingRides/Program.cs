@@ -19,7 +19,7 @@ namespace SelfDrivingRides
         public static List<Ride> readRides = new List<Ride>();
         public static List<Car> readCars = new List<Car>();
         public static List<Ride> remainingRides = new List<Ride>();
-
+        public static double Beta = 40;
         static void Main(string[] args)
         {
             if (args.Length < 1)
@@ -39,10 +39,10 @@ namespace SelfDrivingRides
 
             int popSize = 0;
             Dictionary<int, List<Car>> population = new Dictionary<int, List<Car>>();
-            //Population Generation
-            
-            
-            
+            //Population Generation
+
+            #region oneRep
+
             while (popSize < 1)
             {
                 int counter = 0;
@@ -55,9 +55,9 @@ namespace SelfDrivingRides
                 {
 
                     /* Representation
-                     * List of Cars
-                     * Each List element is a car and has a list of rides
-                     * */
+                     * List of Cars
+                     * Each List element is a car and has a list of rides
+                     * */
 
                     rides = rides.OrderBy(x => x.latestFinish).ToList();
 
@@ -82,7 +82,7 @@ namespace SelfDrivingRides
 
                     int rideKey = filteredRides.ElementAt(random.Next() % filteredRides.Count).Key;
                     Ride r = rides.Where(x => x.getRideId() == rideKey).FirstOrDefault();
- 
+
                     int distanceToRide = c.distanceToRide(r.getStartX(), r.getStartY()) + c.getCurrentCarDistance();
 
                     if (distanceToRide < r.earliestStart)
@@ -150,23 +150,104 @@ namespace SelfDrivingRides
             Console.WriteLine("Solution fitness: " + calculateFitnessScore(bestSolution.ToList()));
 
             printSolution(bestSolution, bestSolutionFitness);
-            remainingRides = GetRemainingRides(bestSolution);
+            
 
 
-            //Hill Climbing with swap and insert rides
-            //performHillClimbing(5000, bestSolution);
+            //Hill Climbing with swap and insert rides
+            //performHillClimbing(5000, bestSolution);
 
-            /*Generating components for GRASP Method
-            Dictionary<int, double> components = new Dictionary<int, double>();
+            //Generating components for GRASP Method
+            Dictionary<int, double> components = new Dictionary<int, double>();
             foreach (var ride in readRides)
             {
                 components.Add(ride.getRideId(), GRASP_ride_fitness(ride));
             }
 
-            //Console.WriteLine("GRASP Method");
-            //GRASP(components, 100, 10, 10);*/
+            
+            
 
-        }
+            Console.WriteLine("GLS Method");
+            int[] timeDistribution = new int[30];
+            Random randomD = new Random();
+            
+            for (int i = 0; i < timeDistribution.Length; i++)
+                timeDistribution[i] = randomD.Next() % 2000;
+
+            int[] ridePenalties = new int[readRides.Count];
+            for (int i = 0; i < ridePenalties.Length; i++) 
+                ridePenalties[i] = 0;
+
+            foreach (var ride in readRides)
+                ride.canBeExplored = 1;
+
+
+            GLS(readRides, 1000, timeDistribution, ridePenalties, bestSolution);
+            
+            #endregion
+            
+        }
+
+
+        static List<Car> generateInitialSolution(List<Ride> readRides,List<Car> cars)
+        {
+            List<Ride> rides = CopyRides(readRides);
+
+            rides = rides.OrderBy(x => x.latestFinish).ToList();
+            foreach(Ride ride in rides)
+            {
+                List<RideQuality> rideQualities = new List<RideQuality>();
+                foreach(Car c in cars)
+                {
+                    rideQualities.Add(c.quality(ride));
+                }
+                List<RideQuality> filteredList = rideQualities.Where(x => (x.finishStep < ride.latestFinish)).OrderBy(x => x.noSteps).ToList();
+                if(filteredList.Any())
+                {
+                    if(filteredList.Where(x => x.pickUpStep <= ride.earliestStart).Any())
+                    {
+                        var carId = filteredList.Where(x => x.pickUpStep <= ride.earliestStart).First().carId;
+                        Car c = cars.Find(x => x.getCarId() == carId);
+                        int distanceToRide = c.distanceToRide(ride.getStartX(), ride.getStartY()) + c.getCurrentCarDistance();
+
+                        if (distanceToRide < ride.earliestStart)
+                            distanceToRide = ride.earliestStart;
+
+                        int distance = distanceToRide + ride.getRideDistance();
+                        if (distance < Steps && distance < ride.latestFinish)
+                        {
+                            c.addRide(ride.getRideId());
+                            //rides.Remove(ride);
+                            c.setPositionX(ride.getEndX());
+                            c.setPositionY(ride.getEndY());
+                            c.setCurrentCarDistance(distance);
+                            c.addRideCost(distance);
+                        }
+
+                    }
+                    else
+                    {
+                        var carId = filteredList.First().carId;
+                        Car c = cars.Find(x => x.getCarId() == carId);
+                        int distanceToRide = c.distanceToRide(ride.getStartX(), ride.getStartY()) + c.getCurrentCarDistance();
+
+                        if (distanceToRide < ride.earliestStart)
+                            distanceToRide = ride.earliestStart;
+
+                        int distance = distanceToRide + ride.getRideDistance();
+                        if (distance < Steps && distance < ride.latestFinish)
+                        {
+                            c.addRide(ride.getRideId());
+                            //rides.Remove(ride);
+                            c.setPositionX(ride.getEndX());
+                            c.setPositionY(ride.getEndY());
+                            c.setCurrentCarDistance(distance);
+                            c.addRideCost(distance);
+                        }
+                    }
+                }
+            }
+            return cars;
+        }
 
         /// <summary>
         /// 
@@ -186,14 +267,315 @@ namespace SelfDrivingRides
             return keyValuePairs;
         }
 
-        /// <summary>
-        ///
-        /// </summary>
-        /// <param name="components">int,double --> rideId, fitness </param>
-        /// <param name="totalTime"></param>
-        /// <param name="p"></param>
-        /// <param name="m"></param>
-        static void GRASP(Dictionary<int, double> components, int totalTime, int p, int m)
+        
+        static void GLS(List<Ride> rides, int totalTime, int[] timeDistribution, int[] penalties,List<Car> candidateSolution)
+        {
+            List<Car> bestSolution = CopySolution(candidateSolution);
+            List<Car> beginSolution = CopySolution(candidateSolution);
+            double currentBestfitness = calculateFitnessScore(bestSolution.ToList());
+            while(true)
+            {
+                Random r = new Random();
+                int index = r.Next() % timeDistribution.Length;
+                int count = 0;
+                //candidateSolution = CopySolution(beginSolution);
+                while (count < timeDistribution[index])
+                {
+                    count++;
+                    List<Ride> rideList = rides.Where(x => x.canBeExplored == 1).ToList();
+                    List<Car> newSolution = Tweak(candidateSolution,count,penalties, rideList);
+                    
+                    double fitness = calculateFitnessScore(newSolution);
+
+                    if (fitness > currentBestfitness)
+                    {
+                        currentBestfitness = fitness;
+                        printSolution(newSolution.ToList(), fitness);
+                        bestSolution = CopySolution(newSolution);
+                        Console.WriteLine("Best Fitness:" + fitness);
+                    }
+                    
+                    if (AdjustedQuality(newSolution, penalties, Beta) > AdjustedQuality(candidateSolution, penalties, Beta))
+                    {
+                        candidateSolution = CopySolution(newSolution);
+                    }
+                }
+                int[] penValues = Penalizability(candidateSolution, penalties);
+                double maxVal = 0;
+                int rideIndex = 0;
+                for (int i = 0; i < penValues.Length; i++)
+                {
+                    if (penValues[i] > maxVal)
+                    {
+                        maxVal = penValues[i];
+                        rideIndex = i;
+                    }
+                }
+
+                penalties[rideIndex] += 4;
+                for(int i=0;i<penalties.Length;i++)
+                {
+                    if (penalties[i] > 0 && i != rideIndex)
+                        penalties[i] -= 1;
+                }
+                rides = updateActivateSet(rides,penalties);
+            }
+        }
+
+
+
+        
+        static List<Ride> updateActivateSet(List<Ride> rides,int[] penalties)
+        {
+            for(int i=0;i<penalties.Length;i++)
+            {
+                if (penalties[i] > 0)
+                    rides.Find(x => x.getRideId() == i).canBeExplored = 0;
+            }
+            return rides;
+        }
+        
+        
+        static int[] Penalizability(List<Car> carRides,int[] penalties)
+        {
+            int[] penValues = new int[readRides.Count];
+            int[] indicators = getFeatureIndicator(carRides);
+            foreach(Car car in carRides)
+            {
+                int count = 0;
+                foreach(int rideId in car.getRides())
+                {
+                    Ride ride = readRides.Find(x => x.getRideId() == rideId);
+                    if (count == 0)
+                        penValues[ride.getRideId()] = indicators[ride.getRideId()] * car.getRidesCost().ElementAt(count) / (1 + penalties[ride.getRideId()]);
+                    else
+                    {
+                        penValues[ride.getRideId()] = indicators[ride.getRideId()] * (car.getRidesCost().ElementAt(count) - car.getRidesCost().ElementAt(count-1)) / (1 + penalties[ride.getRideId()]);
+                    }
+                    count++;
+                }
+            }
+            return penValues;
+        }
+        
+        static int[] initializeIndicator()
+        {
+            int[] indicator = new int[readRides.Count];
+            for(int i=0;i<indicator.Length;i++)
+            {
+                indicator[i] = 0;
+            }
+            return indicator;
+        }
+        
+        static int[] getFeatureIndicator(List<Car> cars)
+        {
+            int[] indicator = initializeIndicator();
+            foreach(Car c in cars)
+            {
+                foreach(int rideId in c.getRides())
+                {
+                    indicator[rideId] = 1;
+                }
+            }
+            return indicator;
+        }
+        
+        static double AdjustedQuality(List<Car> newSolution,int[] ridePenalties,double Beta)
+        {
+            int[] ridesIndicator = getFeatureIndicator(newSolution);
+            double baseFitness = calculateFitnessScore(newSolution);
+            double adjustedFitness = 0;
+            for(int i=0;i<ridesIndicator.Length;i++)
+            {
+                adjustedFitness += (ridePenalties[i] * ridesIndicator[i]);
+            }
+            adjustedFitness *= (-Beta);
+            adjustedFitness += baseFitness;
+            return adjustedFitness;
+        }
+
+        static List<Car> CopySolution(List<Car> currentSol)
+        {
+            List<Car> returnedSol = new List<Car>();
+            foreach(var car in currentSol)
+            {
+                Car c = new Car()
+                {
+                    rides = car.getRides().ToList(),
+                    carScore = car.carScore,
+                    ridesCost = car.getRidesCost().ToList()
+                };
+                c.setCarId(car.getCarId());
+                c.setPositionX(car.getPositionX());
+                c.setPositionY(car.getPositionY());
+                c.setCurrentCarDistance(car.getCurrentCarDistance());
+                returnedSol.Add(c);
+            }
+            return returnedSol;
+        }
+
+        static List<Ride> CopyRides(List<Ride> rides)
+        {
+            List<Ride> returedRides = new List<Ride>();
+            foreach(var ride in rides)
+            {
+                Ride r = new Ride()
+                {
+                    earliestStart = ride.earliestStart,
+                    latestFinish = ride.latestFinish
+                };
+                r.setRideId(ride.getRideId());
+                r.setStartx(ride.getStartX());
+                r.setStarty(ride.getStartY());
+                r.setEndx(ride.getEndX());
+                r.setEndy(ride.getEndY());
+                returedRides.Add(ride);
+            }
+            return returedRides;
+        }
+
+        static int mostPenalizedCarRide(List<int> rides,int[] penalties)
+        {
+            int rideId = -1;
+            int penValue = 0;
+            rides = rides.OrderBy(x => Guid.NewGuid()).ToList();
+            foreach(int ride in rides)
+            {
+                if(penalties[ride] > penValue)
+                {
+                    penValue = penalties[ride];
+                    rideId = ride;
+                }
+            }
+            return rideId;
+        }
+
+
+        static List<Car> Tweak2(List<Car> candidateSolution, int count, List<Ride> remainingRides)
+        {
+            foreach (Ride ride in remainingRides)
+            {
+                List<RideQuality> rideQualities = new List<RideQuality>();
+                foreach (Car c in candidateSolution)
+                {
+                    rideQualities.Add(c.quality(ride));
+                }
+                List<RideQuality> filteredList = rideQualities.Where(x => (x.finishStep < ride.latestFinish)).OrderBy(x => x.noSteps).ToList();
+                if (filteredList.Any())
+                {
+                    var filtered = filteredList.Where(x => x.pickUpStep <= ride.earliestStart).ToList();
+                    if (filtered.Count > 0)
+                    {
+                        var carId = filtered.First().carId;
+                        Car c = candidateSolution.Find(x => x.getCarId() == carId);
+                        int distanceToRide = c.distanceToRide(ride.getStartX(), ride.getStartY()) + c.getCurrentCarDistance();
+
+                        if (distanceToRide < ride.earliestStart)
+                            distanceToRide = ride.earliestStart;
+
+                        int distance = distanceToRide + ride.getRideDistance();
+                        if (distance < Steps && distance < ride.latestFinish)
+                        {
+                            c.addRide(ride.getRideId());
+                            //rides.Remove(ride);
+                            c.setPositionX(ride.getEndX());
+                            c.setPositionY(ride.getEndY());
+                            c.setCurrentCarDistance(distance);
+                            c.addRideCost(distance);
+                            if (calculateFitnessScore(candidateSolution) > 176877)
+                            {
+                                Console.WriteLine("NewFIt:" + calculateFitnessScore(candidateSolution));
+                                printSolution(candidateSolution, calculateFitnessScore(candidateSolution));
+                            }
+                        }
+                    }
+                                    }/*if (filteredList.Any())
+                {
+                    if (filteredList.Where(x => x.pickUpStep <= ride.earliestStart).Any())
+                    {
+                        var carId = filteredList.Where(x => x.pickUpStep <= ride.earliestStart).First().carId;
+                        Car c = cars.Find(x => x.getCarId() == carId);
+                        int distanceToRide = c.distanceToRide(ride.getStartX(), ride.getStartY()) + c.getCurrentCarDistance();
+
+                        if (distanceToRide < ride.earliestStart)
+                            distanceToRide = ride.earliestStart;
+
+                        int distance = distanceToRide + ride.getRideDistance();
+                        if (distance < Steps && distance < ride.latestFinish)
+                        {
+                            c.addRide(ride.getRideId());
+                            //rides.Remove(ride);
+                            c.setPositionX(ride.getEndX());
+                            c.setPositionY(ride.getEndY());
+                            c.setCurrentCarDistance(distance);
+                            c.addRideCost(distance);
+                        }
+
+                    }
+                    else
+                    {
+                        var carId = filteredList.First().carId;
+                    }
+                }*/
+            }
+            return candidateSolution;
+        }
+       static List<Car> Tweak(List<Car> candidateSolution,int count,int[] penalties,List<Ride> readRides)
+       {
+
+            List<Car> newSolution = new List<Car>();
+            newSolution = CopySolution(candidateSolution);
+            Random rand = new Random();
+            int randCar = rand.Next() % NumCars;
+
+            if (count % 8 == 0)
+            {
+                if (newSolution[randCar].rides.Count > 0)
+                {
+                    //List<int> badRides = GetWorstAddedRide(newSolution[randCar]);
+                    //badRides = badRides.OrderBy(x => Guid.NewGuid()).ToList();
+                    int rideId = mostPenalizedCarRide(newSolution[randCar].rides, penalties);
+                    //int rideId = badRides.ElementAt(badRides.Count()-1);
+                    if (rideId != -1)
+                        RemoveRide(newSolution[randCar], readRides, rideId);
+                }
+                else
+                    TryInsertRide(newSolution, newSolution[randCar], readRides, getRemainingRides(newSolution));
+            }
+            int tryInsert = 0;
+            while (tryInsert < 10)
+            {
+                tryInsert++;
+                rand = new Random();
+                int carId = rand.Next() % readCars.Count() + 1; //1 based index
+                TryInsertRide(newSolution, carId, readRides, getRemainingRides(newSolution));
+            }
+            int car = rand.Next() % NumCars;
+
+            if (newSolution.ElementAt(car).rides.Count > 0)
+            {
+                int ride1 = rand.Next() % newSolution.ElementAt(car).rides.Count;
+                int ride2 = rand.Next() % getRemainingRides(newSolution).Count;
+                
+                Car newCar = swapRides(readRides, newSolution.ElementAt(car), ride1, ride2,newSolution);
+                if (newCar != null)
+                {
+                    if (validateSolution(newCar, newCar.getRides()))
+                    {
+                        newSolution.ElementAt(car).rides = newCar.getRides();
+                        newSolution.ElementAt(car).ridesCost = newCar.ridesCost;
+                        newSolution.ElementAt(car).setPositionX(newCar.getPositionX());
+                        newSolution.ElementAt(car).setPositionY(newCar.getPositionY());
+                        newSolution.ElementAt(car).setCurrentCarDistance(newCar.getCurrentCarDistance());
+                    }
+                }
+                
+            }
+
+            return newSolution;
+        }
+        static void GRASP(Dictionary<int, double> components, int totalTime, int p, int m)
         {
             int currentTime = 0;
 
@@ -208,7 +590,7 @@ namespace SelfDrivingRides
                 while (true)
                 {
                     List<int> CPrimComponents = FeasibleComponents(components, currentSolution);
-                    if (count > 2000)
+                    if (count > 12000)
                     {
                         if (calculateFitnessScore(currentSolution) > calculateFitnessScore(readCars))
                         {
@@ -216,6 +598,14 @@ namespace SelfDrivingRides
                             double fitness = calculateFitnessScore(currentSolution);
                             printSolution(currentSolution, fitness);
                             Console.WriteLine();
+                            
+                        }
+                        if (calculateFitnessScore(bestSolution) > 160000)
+                        {
+                            Console.WriteLine("Hill Climbing");
+                            printSolution(bestSolution, calculateFitnessScore(bestSolution));
+                            List<Ride> remainingRides = getRemainingRides(bestSolution);
+                            performHillClimbing(3000, bestSolution,remainingRides);
                         }
                         break;
                     }
@@ -224,6 +614,10 @@ namespace SelfDrivingRides
                         List<int> CSecondComponents = new List<int>();
                         decimal percentAsNumber = p * (decimal.Parse(CPrimComponents.Count.ToString()) / 100);
                         CSecondComponents = CPrimComponents.Take((int)Math.Ceiling(percentAsNumber)).ToList();
+
+                        count++;
+                        if (CSecondComponents.Count == 0)
+                            continue;
                         Random r = new Random();
                         int ridePos = r.Next() % CSecondComponents.Count;
                         Car c = currentSolution.ElementAt(r.Next() % currentSolution.Count);
@@ -245,16 +639,25 @@ namespace SelfDrivingRides
                         }
 
                     }
-                    count++;
-                    if (count % 500 == 0)
-                    {
-                        double fitness = calculateFitnessScore(currentSolution);
-                        Console.WriteLine("Fitness: " + fitness);
-                    }
+                    
+                    
 
                 }
 
             }
+        }
+        
+        static List<Ride> getRemainingRides(List<Car> currentSolution)
+        {
+            List<Ride> remainingRides = readRides.ToList();
+            foreach(var car in currentSolution)
+            {
+                foreach(var ride in car.rides)
+                {
+                    remainingRides.Remove(readRides.Find(x =>x.getRideId() == ride));
+                }
+            }
+            return remainingRides;
         }
 
         static List<int> FeasibleComponents(Dictionary<int, double> components, List<Car> cars)
@@ -298,9 +701,10 @@ namespace SelfDrivingRides
             return Math.Sqrt(Math.Pow(r.getStartX(), 2) + Math.Pow(r.getStartY(), 2));
         }
 
-        static void performHillClimbing(int numIterations, List<Car> bestSolution)
+        static void performHillClimbing(int numIterations, List<Car> bestSolution,List<Ride> remainingRides)
         {
             int count = 0;
+            double bestFitness = calculateFitnessScore(bestSolution);
             while (true)
             {
                 count++;
@@ -319,7 +723,7 @@ namespace SelfDrivingRides
                 {
                     Random rand = new Random();
                     int randCar = rand.Next() % NumCars;
-                    TryInsertRide(bestSolution, bestSolution.ElementAt(randCar), readRides);
+                    TryInsertRide(bestSolution, bestSolution.ElementAt(randCar), readRides,remainingRides);
                 }
                 Random r = new Random();
                 int car = r.Next() % NumCars;
@@ -329,13 +733,13 @@ namespace SelfDrivingRides
                     int ride1 = r.Next() % bestSolution.ElementAt(car).rides.Count;
                     Thread.Sleep(10);
                     int ride2 = r.Next() % bestSolution.ElementAt(car).rides.Count;
-                    Car newCar = swapRides(readRides, bestSolution.ElementAt(car), ride1, ride2);
+                    Car newCar = swapRides(readRides, bestSolution.ElementAt(car), ride1, ride2,bestSolution);
                     if (newCar != null)
                     {
                         bool result = validateSolution(newCar, newCar.getRides());
                         if (result == true)
                         {
-                            TryInsertRide(bestSolution, newCar, readRides);
+                            TryInsertRide(bestSolution, newCar, readRides,remainingRides);
                             bestSolution.ElementAt(car).rides = newCar.getRides();
                             bestSolution.ElementAt(car).ridesCost = newCar.ridesCost;
                             bestSolution.ElementAt(car).setPositionX(newCar.getPositionX());
@@ -348,6 +752,13 @@ namespace SelfDrivingRides
                 if (count % 100 == 0)
                 {
                     double fitness = calculateFitnessScore(bestSolution.ToList());
+                    if (fitness > bestFitness)
+                    {
+                        bestFitness = fitness;
+                        printSolution(bestSolution, fitness);
+                        Console.WriteLine(fitness);
+                    }
+                    //printSolution(bestSolution, fitness);
                     Console.WriteLine(fitness);
                 }
 
@@ -382,7 +793,7 @@ namespace SelfDrivingRides
             return badRides;
         }
 
-        static void RemoveRide(Car c, List<Ride> readRides, int rideId)
+        static void RemoveRide(Car c, List<Ride> rides, int rideId)
         {
             c.rides.Remove(rideId);
             List<int> carRides = c.getRides().ToList();
@@ -424,11 +835,13 @@ namespace SelfDrivingRides
         }
 
 
-        static void TryInsertRide(List<Car> cars, Car c, List<Ride> readRides)
+        static List<Car> TryInsertRide(List<Car> cars, int carId, List<Ride> readRides, List<Ride> remainingRides)
         {
-            List<Ride> rides = readRides.ToList();
-
-            List<Ride> newRides = remainingRides.ToList();
+            List<Ride> rides = new List<Ride>();
+            rides = CopyRides(readRides);
+            Car c = cars.Find(x => x.getCarId() == carId);
+            List<Ride> newRides = new List<Ride>();
+            newRides = CopyRides(remainingRides);
             Ride r = closestRide(c, newRides);
             int distanceToRide = c.distanceToRide(r.getStartX(), r.getStartY()) + c.getCurrentCarDistance();
 
@@ -436,7 +849,35 @@ namespace SelfDrivingRides
                 distanceToRide = r.earliestStart;
 
             int distance = distanceToRide + r.getRideDistance();
-            if (distance < Steps && distance < r.latestFinish)
+            if (distance < Steps && distance < r.latestFinish-1)
+            {
+                c.addRide(r.getRideId());
+                rides.Remove(r);
+                remainingRides.Remove(r);
+                c.setPositionX(r.getEndX());
+                c.setPositionY(r.getEndY());
+                c.setCurrentCarDistance(distance);
+                c.addRideCost(distance);
+            }
+
+            return cars;
+        }
+
+        static void TryInsertRide(List<Car> cars, Car c, List<Ride> readRides,List<Ride> remainingRides)
+        {
+            List<Ride> rides = new List<Ride>();
+            rides.AddRange(readRides);
+
+            List<Ride> newRides = new List<Ride>();
+            newRides.AddRange(remainingRides);
+            Ride r = closestRide(c, newRides);
+            int distanceToRide = c.distanceToRide(r.getStartX(), r.getStartY()) + c.getCurrentCarDistance();
+
+            if (distanceToRide < r.earliestStart)
+                distanceToRide = r.earliestStart;
+
+            int distance = distanceToRide + r.getRideDistance();
+            if (distance < Steps-1 && distance < r.latestFinish)
             {
                 c.addRide(r.getRideId());
                 rides.Remove(r);
@@ -448,19 +889,6 @@ namespace SelfDrivingRides
             }
         }
 
-        static List<Ride> GetRemainingRides(List<Car> cars)
-        {
-            List<Ride> allowedRides = readRides.ToList();
-            List<Ride> newRides = new List<Ride>();
-            foreach (var car in cars)
-            {
-                newRides = allowedRides.Where(x => !car.rides.Contains(x.getRideId())).ToList();
-                allowedRides = newRides.ToList();
-            }
-
-            return newRides;
-
-        }
 
         static KeyValuePair<int, List<Car>> RankSelect(Dictionary<int, List<Car>> rep)
         {
@@ -532,7 +960,7 @@ namespace SelfDrivingRides
         }
         static void printSolution(List<Car> bestSolution, double solutionFitness)
         {
-            StreamWriter file = new StreamWriter(@"C:\Users\USER\Desktop\HashCode2018\Validator\c_no_hurry.out");
+            StreamWriter file = new StreamWriter(@"C:\Users\USER\Desktop\HashCode2018\Validator\b_should_be_easy.out");
             string line;
             foreach (var car in bestSolution)
             {
@@ -544,7 +972,7 @@ namespace SelfDrivingRides
                 file.WriteLine(line);
             }
 
-            Console.WriteLine("Fitness:" + solutionFitness);
+            //Console.WriteLine("Fitness:" + solutionFitness);
             file.Close();
         }
 
@@ -653,23 +1081,33 @@ namespace SelfDrivingRides
 
             return r;
         }
-        static Car swapRides(List<Ride> rides, Car c, int rideId1, int rideId2)
+        static Car swapRides(List<Ride> rides, Car c, int rideId1, int rideId2,List<Car> currentSolution)
         {
-            List<int> rideCosts = c.getRidesCost().ToList();
-            List<int> carRides = c.getRides().ToList();
-
-            int temp = carRides[rideId1];
-            carRides[rideId1] = carRides[rideId2];
-            carRides[rideId2] = temp;
             Car newCar = new Car();
+            newCar.rides = new List<int>();
+            foreach (var ride in c.getRides())
+            {
+                newCar.rides.Add(ride);
+            }
+            Ride r = getRemainingRides(currentSolution).ElementAt(rideId2);
+            newCar.rides.RemoveAt(rideId1);
+            newCar.rides.Insert(rideId1, r.getRideId());
             newCar.setCurrentCarDistance(0);
+            List<int> carRides = c.getRides().ToList();
+            List<int> rideCosts = new List<int>();
+            
+            foreach(var cost in c.getRidesCost().ToList())
+            {
+                rideCosts.Add(cost);
+            }
+            
             for (int i = 0; i < carRides.Count; i++)
             {
                 if (i == 0)
                 {
                     newCar.setPositionX(0);
                     newCar.setPositionY(0);
-                    Ride ride = rides.Where(x => x.getRideId() == carRides[i]).FirstOrDefault();
+                    Ride ride = readRides.Where(x => x.getRideId() == carRides[i]).FirstOrDefault();
                     int distance = newCar.distanceToRide(ride.getStartX(), ride.getStartY()) + newCar.getCurrentCarDistance();
                     if (distance < ride.earliestStart)
                         distance = ride.earliestStart;
@@ -683,12 +1121,17 @@ namespace SelfDrivingRides
                 }
                 else
                 {
-                    Ride ride = rides.Where(x => x.getRideId() == carRides[i]).FirstOrDefault();
+                    Ride ride = readRides.Where(x => x.getRideId() == carRides[i]).FirstOrDefault();
                     int distance = newCar.distanceToRide(ride.getStartX(), ride.getStartY()) + newCar.getCurrentCarDistance();
                     if (distance < ride.earliestStart)
                         distance = ride.earliestStart;
 
                     distance += ride.getRideDistance();
+
+                    if (distance < Steps && distance < ride.latestFinish)
+                    {
+                        return null;
+                    }
 
                     newCar.setCurrentCarDistance(distance);
                     rideCosts[i] = distance;
@@ -754,4 +1197,5 @@ namespace SelfDrivingRides
 
         
     }
+
 }
