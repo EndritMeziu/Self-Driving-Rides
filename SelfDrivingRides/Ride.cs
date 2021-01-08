@@ -92,6 +92,11 @@ namespace SelfDrivingRides
             this.endy = endy;
         }
 
+        public int distanceToRide(int carX,int carY,int rideStartX,int rideStartY)
+        {
+            return Math.Abs(rideStartX - carX) + Math.Abs(rideStartY - carY);
+        }
+
         public object Clone()
         {
             throw new NotImplementedException();

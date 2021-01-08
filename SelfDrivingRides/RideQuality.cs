@@ -12,5 +12,7 @@ namespace SelfDrivingRides
         public int finishStep { get; set; }
         public int carId { get; set; }
         public int noSteps { get; set; }
+        public double efficency { get; set; }
+        public int rideId { get; set; }
     }
 }
